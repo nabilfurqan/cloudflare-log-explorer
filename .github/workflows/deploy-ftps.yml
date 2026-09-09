@@ -1,6 +1,5 @@
 name: Deploy to cPanel via FTPS
 
-# Test trigger: 2026-09-09
 on:
   push:
     branches:
@@ -51,18 +50,14 @@ jobs:
       - name: Deploy application files over explicit FTPS
         shell: bash
         env:
-          FTP_HOST: ${{ secrets.FTP_HOST }}
-          FTP_PORT: ${{ secrets.FTP_PORT }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
           set -euo pipefail
-          : "${FTP_HOST:?Missing FTP_HOST secret}"
           : "${FTP_USERNAME:?Missing FTP_USERNAME secret}"
           : "${FTP_PASSWORD:?Missing FTP_PASSWORD secret}"
-          PORT="${FTP_PORT:-21}"
 
-          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" -p "$PORT" "$FTP_HOST" <<'EOF'
+          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" -p 21 ftp.cloudnetworklab.com <<'EOF'
           set ftp:ssl-force true
           set ftp:ssl-protect-data true
           set ssl:verify-certificate yes
