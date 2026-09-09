@@ -7,6 +7,7 @@ on:
     paths:
       - 'index.php'
       - '.htaccess'
+      - 'favicon.ico'
       - 'api/**'
       - 'assets/**'
       - 'lib/**'
@@ -37,6 +38,7 @@ jobs:
           mkdir -p .deploy/api .deploy/assets .deploy/lib
           cp index.php .deploy/index.php
           cp .htaccess .deploy/.htaccess
+          cp favicon.ico .deploy/favicon.ico
           cp -R api/. .deploy/api/
           cp -R assets/. .deploy/assets/
           cp -R lib/. .deploy/lib/
@@ -75,4 +77,6 @@ jobs:
           curl --fail --silent --show-error \
             --retry 5 --retry-delay 2 --retry-all-errors \
             https://logpull.cloudnetworklab.com/ > /dev/null
+          curl --fail --silent --show-error \
+            https://logpull.cloudnetworklab.com/favicon.ico > /dev/null
           echo 'Deployment smoke test passed.'
