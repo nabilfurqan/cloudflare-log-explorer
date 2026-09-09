@@ -57,7 +57,7 @@ jobs:
           : "${FTP_USERNAME:?Missing FTP_USERNAME secret}"
           : "${FTP_PASSWORD:?Missing FTP_PASSWORD secret}"
 
-          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" -p 21 ftp.cloudnetworklab.com <<'EOF'
+          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" -p 21 cloudnetworklab.com <<'EOF'
           set ftp:ssl-force true
           set ftp:ssl-protect-data true
           set ssl:verify-certificate yes
