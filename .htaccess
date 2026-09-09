@@ -1,11 +1,18 @@
 Options -Indexes
 
-<IfModule mod_headers.c>
-  Header always set X-Content-Type-Options "nosniff"
-  Header always set Referrer-Policy "no-referrer"
-  Header always set X-Frame-Options "DENY"
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule "(^|/)\.(git|env)" - [F,L,NC]
 </IfModule>
 
-<FilesMatch "^(composer\.(json|lock)|README\.md)$">
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "no-referrer"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+</IfModule>
+
+<FilesMatch "^(composer\.(json|lock)|README\.md|DEPLOY_CPANEL\.md|\.cpanel\.yml\.example)$">
   Require all denied
 </FilesMatch>
