@@ -47,13 +47,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq lftp
 
-      - name: Inspect FTP TLS certificate
-        shell: bash
-        run: |
-          set -o pipefail
-          timeout 20 openssl s_client -starttls ftp -connect cloudnetworklab.com:21 -servername cloudnetworklab.com </dev/null 2>/dev/null \
-            | openssl x509 -noout -subject -issuer -ext subjectAltName || true
-
       - name: Deploy application files over explicit FTPS
         shell: bash
         env:
@@ -64,7 +57,7 @@ jobs:
           : "${FTP_USERNAME:?Missing FTP_USERNAME secret}"
           : "${FTP_PASSWORD:?Missing FTP_PASSWORD secret}"
 
-          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" -p 21 cloudnetworklab.com <<'EOF'
+          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" -p 21 kemiri.iixcp.rumahweb.net <<'EOF'
           set ftp:ssl-force true
           set ftp:ssl-protect-data true
           set ssl:verify-certificate yes
