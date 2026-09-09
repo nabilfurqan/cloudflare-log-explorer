@@ -18,7 +18,9 @@ if (!valid_resource_id($zoneId)) {
 if (!is_array($fields)) {
     $fields = [];
 }
-$fields = array_values(array_filter(array_map(static fn($v): string => preg_replace('/[^A-Za-z0-9_]/', '', (string) $v), $fields)));
+$fields = array_values(array_filter(array_map(static function ($value): string {
+    return (string) preg_replace('/[^A-Za-z0-9_]/', '', (string) $value);
+}, $fields)));
 if (count($fields) > 120) {
     json_response(['success' => false, 'error' => 'Too many fields selected.'], 422);
 }
