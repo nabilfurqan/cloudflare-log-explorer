@@ -1,5 +1,6 @@
 name: Deploy to cPanel via FTPS
 
+# Test trigger: 2026-09-09
 on:
   push:
     branches:
