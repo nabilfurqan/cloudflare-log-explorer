@@ -9,12 +9,14 @@ if (!$response['ok'] || empty($response['body']['success'])) {
     json_response(['success' => false, 'error' => cf_error_message($response, 'Unable to list zones.')], $response['status'] ?: 502);
 }
 
-$zones = array_map(static fn(array $zone): array => [
-    'id' => (string) ($zone['id'] ?? ''),
-    'name' => (string) ($zone['name'] ?? ''),
-    'status' => (string) ($zone['status'] ?? ''),
-    'accountId' => (string) ($zone['account']['id'] ?? ''),
-    'accountName' => (string) ($zone['account']['name'] ?? ''),
-], $response['body']['result'] ?? []);
+$zones = array_map(static function (array $zone): array {
+    return [
+        'id' => (string) ($zone['id'] ?? ''),
+        'name' => (string) ($zone['name'] ?? ''),
+        'status' => (string) ($zone['status'] ?? ''),
+        'accountId' => (string) ($zone['account']['id'] ?? ''),
+        'accountName' => (string) ($zone['account']['name'] ?? ''),
+    ];
+}, $response['body']['result'] ?? []);
 
 json_response(['success' => true, 'zones' => $zones]);
