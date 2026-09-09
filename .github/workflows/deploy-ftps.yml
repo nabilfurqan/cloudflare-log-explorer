@@ -1,0 +1,82 @@
+name: Deploy to cPanel via FTPS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'index.php'
+      - '.htaccess'
+      - 'api/**'
+      - 'assets/**'
+      - 'lib/**'
+      - '.github/workflows/deploy-ftps.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-logpull
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare deployment package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .deploy
+          mkdir -p .deploy/api .deploy/assets .deploy/lib
+          cp index.php .deploy/index.php
+          cp .htaccess .deploy/.htaccess
+          cp -R api/. .deploy/api/
+          cp -R assets/. .deploy/assets/
+          cp -R lib/. .deploy/lib/
+
+      - name: Install FTPS client
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lftp
+
+      - name: Deploy application files over explicit FTPS
+        shell: bash
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_PORT: ${{ secrets.FTP_PORT }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${FTP_HOST:?Missing FTP_HOST secret}"
+          : "${FTP_USERNAME:?Missing FTP_USERNAME secret}"
+          : "${FTP_PASSWORD:?Missing FTP_PASSWORD secret}"
+          PORT="${FTP_PORT:-21}"
+
+          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" -p "$PORT" "$FTP_HOST" <<'EOF'
+          set ftp:ssl-force true
+          set ftp:ssl-protect-data true
+          set ssl:verify-certificate yes
+          set ftp:passive-mode true
+          set net:max-retries 2
+          set net:timeout 20
+          mirror -R --verbose --parallel=2 .deploy/ /
+          bye
+          EOF
+
+      - name: Smoke test production
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            https://logpull.cloudnetworklab.com/ > /dev/null
+          echo 'Deployment smoke test passed.'
