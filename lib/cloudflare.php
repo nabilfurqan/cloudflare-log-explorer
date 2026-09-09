@@ -32,7 +32,9 @@ function bootstrap_session(): void
             'httponly' => true,
             'samesite' => 'Strict',
         ]);
-        session_start();
+        if (!session_start()) {
+            throw new RuntimeException('Unable to start PHP session.');
+        }
     }
 
     $now = time();
@@ -51,7 +53,7 @@ function bootstrap_session(): void
     }
 }
 
-function json_response(array $payload, int $status = 200): never
+function json_response(array $payload, int $status = 200)
 {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
@@ -142,7 +144,9 @@ function rate_limit_or_reject(string $bucket, int $maxAttempts, int $windowSecon
         }
 
         $cutoff = time() - $windowSeconds;
-        $timestamps = array_values(array_filter($timestamps, static fn($ts): bool => is_int($ts) && $ts > $cutoff));
+        $timestamps = array_values(array_filter($timestamps, static function ($ts) use ($cutoff): bool {
+            return is_int($ts) && $ts > $cutoff;
+        }));
 
         if (count($timestamps) >= $maxAttempts) {
             header('Retry-After: ' . $windowSeconds);
@@ -162,15 +166,29 @@ function rate_limit_or_reject(string $bucket, int $maxAttempts, int $windowSecon
 
 function cf_request(string $method, string $path, string $token, ?array $body = null, array $query = []): array
 {
-    $url = str_starts_with($path, 'https://')
+    if (!function_exists('curl_init')) {
+        return [
+            'ok' => false,
+            'status' => 0,
+            'body' => null,
+            'raw' => '',
+            'error' => 'PHP cURL extension is not enabled on this server.',
+        ];
+    }
+
+    $url = strpos($path, 'https://') === 0
         ? $path
         : 'https://api.cloudflare.com/client/v4' . $path;
 
     if ($query) {
-        $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        $url .= (strpos($url, '?') !== false ? '&' : '?') . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
     }
 
     $ch = curl_init($url);
+    if ($ch === false) {
+        return ['ok' => false, 'status' => 0, 'body' => null, 'raw' => '', 'error' => 'Unable to initialize cURL.'];
+    }
+
     $headers = [
         'Authorization: Bearer ' . $token,
         'Accept: application/json',
@@ -229,7 +247,7 @@ function cf_error_message(array $response, string $fallback = 'Cloudflare API re
     }
 
     if (!empty($response['error'])) {
-        return $fallback . ' Network error.';
+        return $fallback . ' ' . (string) $response['error'];
     }
 
     return $fallback . ' HTTP ' . ($response['status'] ?? 'unknown') . '.';
@@ -244,7 +262,7 @@ function iso_to_timestamp(string $value): ?int
 {
     try {
         return (new DateTimeImmutable($value))->getTimestamp();
-    } catch (Throwable) {
+    } catch (Throwable $e) {
         return null;
     }
 }
