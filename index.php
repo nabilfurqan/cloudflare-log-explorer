@@ -4,9 +4,14 @@ require_once __DIR__ . '/lib/cloudflare.php';
 bootstrap_session();
 header("Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
 header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
 header('Referrer-Policy: no-referrer');
 header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+header('Cross-Origin-Opener-Policy: same-origin');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+if (is_https_request()) {
+    header('Strict-Transport-Security: max-age=31536000');
+}
 $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
 ?>
 <!doctype html>
@@ -17,7 +22,7 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
     <meta name="csrf-token" content="<?= $csrf ?>">
     <title>Cloudflare Log Explorer</title>
     <meta name="description" content="Secure browser-based Cloudflare Logpull and Security Events explorer.">
-    <link rel="stylesheet" href="assets/style.css?v=1">
+    <link rel="stylesheet" href="assets/style.css?v=2">
 </head>
 <body>
 <div class="shell">
@@ -41,7 +46,7 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
             </div>
             <div class="security-note">
                 <strong>Token handling</strong>
-                <span>Your token is kept only in the server-side PHP session and cleared when you disconnect.</span>
+                <span>Your token is kept only in the server-side PHP session, automatically expires after 30 minutes of inactivity, and is cleared when you disconnect.</span>
             </div>
         </section>
 
@@ -71,7 +76,7 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
                 </label>
                 <div class="form-actions field-wide">
                     <button class="primary" type="submit" id="connectBtn">Connect</button>
-                    <span class="hint">The token is never written to this repository or a database.</span>
+                    <span class="hint">The token is never written to this repository, browser storage, or a database.</span>
                 </div>
             </form>
             <div id="connectMessage" class="message hidden"></div>
@@ -105,11 +110,11 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
                         <select id="zoneSelect"></select>
                     </label>
                     <label class="field">
-                        <span>From</span>
+                        <span>From <em>WIB · Asia/Jakarta</em></span>
                         <input type="datetime-local" id="startTime" step="60">
                     </label>
                     <label class="field">
-                        <span>To</span>
+                        <span>To <em>WIB · Asia/Jakarta</em></span>
                         <input type="datetime-local" id="endTime" step="60">
                     </label>
                     <label class="field">
@@ -184,6 +189,6 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js" defer></script>
-<script src="assets/app.js?v=1" defer></script>
+<script src="assets/app.js?v=2" defer></script>
 </body>
 </html>
