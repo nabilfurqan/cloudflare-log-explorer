@@ -6,8 +6,12 @@ deployment:
     - /bin/mkdir -p $DEPLOYPATH/api
     - /bin/mkdir -p $DEPLOYPATH/assets
     - /bin/mkdir -p $DEPLOYPATH/lib
+    - /bin/rm -f $DEPLOYPATH/index.html
     - /bin/cp index.php $DEPLOYPATH
     - /bin/cp .htaccess $DEPLOYPATH
     - /bin/cp -R api/. $DEPLOYPATH/api/
     - /bin/cp -R assets/. $DEPLOYPATH/assets/
     - /bin/cp -R lib/. $DEPLOYPATH/lib/
+    - /bin/chmod 755 $DEPLOYPATH $DEPLOYPATH/api $DEPLOYPATH/assets $DEPLOYPATH/lib
+    - /bin/chmod 644 $DEPLOYPATH/index.php $DEPLOYPATH/.htaccess
+    - /bin/chmod -R u=rwX,go=rX $DEPLOYPATH/api $DEPLOYPATH/assets $DEPLOYPATH/lib
