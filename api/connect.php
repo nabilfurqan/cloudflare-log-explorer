@@ -50,7 +50,17 @@ if ($zonesResp['ok'] && !empty($zonesResp['body']['success'])) {
     }
 }
 
-if ($manualZoneId !== '' && !array_filter($zones, fn(array $z): bool => $z['id'] === $manualZoneId)) {
+$manualAlreadyPresent = false;
+if ($manualZoneId !== '') {
+    foreach ($zones as $zone) {
+        if (($zone['id'] ?? '') === $manualZoneId) {
+            $manualAlreadyPresent = true;
+            break;
+        }
+    }
+}
+
+if ($manualZoneId !== '' && !$manualAlreadyPresent) {
     array_unshift($zones, [
         'id' => $manualZoneId,
         'name' => 'Manual Zone ID',
