@@ -1,0 +1,15 @@
+---
+# Copy this file to .cpanel.yml after changing DEPLOYPATH to the exact
+# document root of your Cloudflare Log Explorer subdomain.
+deployment:
+  tasks:
+    - export DEPLOYPATH=$HOME/public_html/logpull/
+    - /bin/mkdir -p $DEPLOYPATH
+    - /bin/mkdir -p $DEPLOYPATH/api
+    - /bin/mkdir -p $DEPLOYPATH/assets
+    - /bin/mkdir -p $DEPLOYPATH/lib
+    - /bin/cp index.php $DEPLOYPATH
+    - /bin/cp .htaccess $DEPLOYPATH
+    - /bin/cp -R api/. $DEPLOYPATH/api/
+    - /bin/cp -R assets/. $DEPLOYPATH/assets/
+    - /bin/cp -R lib/. $DEPLOYPATH/lib/
