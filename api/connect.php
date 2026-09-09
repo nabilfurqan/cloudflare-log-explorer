@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/cloudflare.php';
 bootstrap_session();
 require_csrf();
+rate_limit_or_reject('connect', 8, 300);
 
 $data = read_json_body();
 $token = trim((string) ($data['token'] ?? ''));
@@ -25,10 +26,12 @@ if (!$verify['ok'] || empty($verify['body']['success'])) {
 }
 
 session_regenerate_id(true);
+unset($_SESSION['session_expired']);
 $_SESSION['cf_token'] = $token;
 $_SESSION['manual_zone_id'] = $manualZoneId;
 $_SESSION['manual_account_id'] = $manualAccountId;
 $_SESSION['connected_at'] = time();
+$_SESSION['last_activity'] = time();
 $_SESSION['csrf'] = bin2hex(random_bytes(24));
 
 $zonesResp = cf_request('GET', '/zones', $token, null, ['per_page' => 50, 'page' => 1]);
@@ -61,6 +64,8 @@ $verifyResult = $verify['body']['result'] ?? [];
 json_response([
     'success' => true,
     'csrf' => $_SESSION['csrf'],
+    'sessionIdleTimeoutSeconds' => SESSION_IDLE_TIMEOUT,
+    'timezone' => APP_TIMEZONE,
     'token' => [
         'status' => (string) ($verifyResult['status'] ?? 'active'),
         'id' => (string) ($verifyResult['id'] ?? ''),
