@@ -4,6 +4,7 @@ declare(strict_types=1);
 const APP_TIMEZONE = 'Asia/Jakarta';
 const SESSION_IDLE_TIMEOUT = 1800;
 const MAX_JSON_BODY_BYTES = 65536;
+const MAX_CF_ERROR_DETAIL_BYTES = 1200;
 
 date_default_timezone_set(APP_TIMEZONE);
 
@@ -24,6 +25,8 @@ function bootstrap_session(): void
         session_name('cfle_session');
         ini_set('session.use_strict_mode', '1');
         ini_set('session.use_only_cookies', '1');
+        ini_set('session.use_trans_sid', '0');
+        ini_set('session.cookie_httponly', '1');
         ini_set('session.gc_maxlifetime', (string) (SESSION_IDLE_TIMEOUT + 300));
         session_set_cookie_params([
             'lifetime' => 0,
@@ -60,6 +63,8 @@ function json_response(array $payload, int $status = 200)
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
     header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: no-referrer');
     echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -94,28 +99,183 @@ function require_csrf(): void
     }
 }
 
+function base64url_encode(string $value): string
+{
+    return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+}
+
+function base64url_decode(string $value): string|false
+{
+    $padding = strlen($value) % 4;
+    if ($padding !== 0) {
+        $value .= str_repeat('=', 4 - $padding);
+    }
+    return base64_decode(strtr($value, '-_', '+/'), true);
+}
+
+function app_secret_key(): ?string
+{
+    static $cached = null;
+    static $resolved = false;
+    if ($resolved) {
+        return $cached;
+    }
+    $resolved = true;
+
+    $env = trim((string) (getenv('CFLE_SESSION_KEY') ?: ''));
+    if ($env !== '') {
+        $decoded = base64_decode($env, true);
+        if (is_string($decoded) && strlen($decoded) >= 32) {
+            return $cached = substr($decoded, 0, 32);
+        }
+        if (strlen($env) >= 32) {
+            return $cached = substr(hash('sha256', $env, true), 0, 32);
+        }
+    }
+
+    $path = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'cfle-session-key-v1.bin';
+    $existing = @file_get_contents($path);
+    if (is_string($existing) && strlen($existing) === 32) {
+        return $cached = $existing;
+    }
+
+    try {
+        $key = random_bytes(32);
+    } catch (Throwable $e) {
+        return null;
+    }
+
+    $handle = @fopen($path, 'x+b');
+    if ($handle !== false) {
+        @chmod($path, 0600);
+        fwrite($handle, $key);
+        fflush($handle);
+        fclose($handle);
+        return $cached = $key;
+    }
+
+    $existing = @file_get_contents($path);
+    if (is_string($existing) && strlen($existing) === 32) {
+        return $cached = $existing;
+    }
+
+    return null;
+}
+
+function encrypt_session_secret(string $plain): string
+{
+    $key = app_secret_key();
+    if ($key === null) {
+        return 'plain:' . base64url_encode($plain);
+    }
+
+    if (function_exists('sodium_crypto_secretbox')) {
+        $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+        $cipher = sodium_crypto_secretbox($plain, $nonce, $key);
+        return 'sodium:' . base64url_encode($nonce . $cipher);
+    }
+
+    if (function_exists('openssl_encrypt')) {
+        $iv = random_bytes(12);
+        $tag = '';
+        $cipher = openssl_encrypt($plain, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, '', 16);
+        if (is_string($cipher)) {
+            return 'gcm:' . base64url_encode($iv . $tag . $cipher);
+        }
+    }
+
+    return 'plain:' . base64url_encode($plain);
+}
+
+function decrypt_session_secret(string $encoded): ?string
+{
+    if (!str_contains($encoded, ':')) {
+        return $encoded;
+    }
+
+    [$scheme, $payload] = explode(':', $encoded, 2);
+    $raw = base64url_decode($payload);
+    if (!is_string($raw)) {
+        return null;
+    }
+
+    if ($scheme === 'plain') {
+        return $raw;
+    }
+
+    $key = app_secret_key();
+    if ($key === null) {
+        return null;
+    }
+
+    if ($scheme === 'sodium' && function_exists('sodium_crypto_secretbox_open')) {
+        $nonceBytes = SODIUM_CRYPTO_SECRETBOX_NONCEBYTES;
+        if (strlen($raw) <= $nonceBytes) {
+            return null;
+        }
+        $nonce = substr($raw, 0, $nonceBytes);
+        $cipher = substr($raw, $nonceBytes);
+        $plain = sodium_crypto_secretbox_open($cipher, $nonce, $key);
+        return is_string($plain) ? $plain : null;
+    }
+
+    if ($scheme === 'gcm' && function_exists('openssl_decrypt')) {
+        if (strlen($raw) <= 28) {
+            return null;
+        }
+        $iv = substr($raw, 0, 12);
+        $tag = substr($raw, 12, 16);
+        $cipher = substr($raw, 28);
+        $plain = openssl_decrypt($cipher, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+        return is_string($plain) ? $plain : null;
+    }
+
+    return null;
+}
+
+function store_session_token(string $token): void
+{
+    $_SESSION['cf_token_enc'] = encrypt_session_secret($token);
+    unset($_SESSION['cf_token']);
+}
+
 function require_token(): string
 {
-    if (empty($_SESSION['cf_token']) || !is_string($_SESSION['cf_token'])) {
-        $expired = !empty($_SESSION['session_expired']);
-        json_response([
-            'success' => false,
-            'error' => $expired
-                ? 'Session expired after 30 minutes of inactivity. Connect your Cloudflare API Token again.'
-                : 'Cloudflare session is not connected.',
-        ], 401);
+    $encoded = $_SESSION['cf_token_enc'] ?? null;
+    if (is_string($encoded) && $encoded !== '') {
+        $token = decrypt_session_secret($encoded);
+        if (is_string($token) && $token !== '') {
+            return $token;
+        }
+        $_SESSION = [];
+        session_regenerate_id(true);
+        json_response(['success' => false, 'error' => 'Secure session state could not be decrypted. Connect your Cloudflare API Token again.'], 401);
     }
-    return $_SESSION['cf_token'];
+
+    if (!empty($_SESSION['cf_token']) && is_string($_SESSION['cf_token'])) {
+        $token = $_SESSION['cf_token'];
+        store_session_token($token);
+        return $token;
+    }
+
+    $expired = !empty($_SESSION['session_expired']);
+    json_response([
+        'success' => false,
+        'error' => $expired
+            ? 'Session expired after 30 minutes of inactivity. Connect your Cloudflare API Token again.'
+            : 'Cloudflare session is not connected.',
+    ], 401);
 }
 
 function client_ip_for_rate_limit(): string
 {
+    $remoteIp = trim((string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
     $cfIp = trim((string) ($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
+
     if ($cfIp !== '' && filter_var($cfIp, FILTER_VALIDATE_IP)) {
         return $cfIp;
     }
 
-    $remoteIp = trim((string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
     return filter_var($remoteIp, FILTER_VALIDATE_IP) ? $remoteIp : 'unknown';
 }
 
@@ -123,7 +283,8 @@ function rate_limit_or_reject(string $bucket, int $maxAttempts, int $windowSecon
 {
     $maxAttempts = max(1, $maxAttempts);
     $windowSeconds = max(1, $windowSeconds);
-    $key = hash('sha256', $bucket . '|' . client_ip_for_rate_limit());
+    $sessionPart = session_status() === PHP_SESSION_ACTIVE ? session_id() : '';
+    $key = hash('sha256', $bucket . '|' . client_ip_for_rate_limit() . '|' . $sessionPart);
     $path = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'cfle-rl-' . $key . '.json';
     $handle = @fopen($path, 'c+');
 
@@ -150,7 +311,7 @@ function rate_limit_or_reject(string $bucket, int $maxAttempts, int $windowSecon
 
         if (count($timestamps) >= $maxAttempts) {
             header('Retry-After: ' . $windowSeconds);
-            json_response(['success' => false, 'error' => 'Too many connection attempts. Try again in a few minutes.'], 429);
+            json_response(['success' => false, 'error' => 'Too many requests. Try again in a few minutes.'], 429);
         }
 
         $timestamps[] = time();
@@ -192,7 +353,7 @@ function cf_request(string $method, string $path, string $token, ?array $body = 
     $headers = [
         'Authorization: Bearer ' . $token,
         'Accept: application/json',
-        'User-Agent: Cloudflare-Log-Explorer/1.1',
+        'User-Agent: Cloudflare-Explorer/2.0',
     ];
 
     if ($body !== null) {
@@ -234,23 +395,56 @@ function cf_request(string $method, string $path, string $token, ?array $body = 
     ];
 }
 
-function cf_error_message(array $response, string $fallback = 'Cloudflare API request failed.'): string
+function cf_error_detail(array $response): ?string
 {
     $body = $response['body'] ?? null;
     if (is_array($body)) {
-        if (!empty($body['errors'][0]['message'])) {
-            return (string) $body['errors'][0]['message'];
+        $parts = [];
+        foreach (['errors', 'messages'] as $key) {
+            foreach (($body[$key] ?? []) as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $code = isset($item['code']) ? trim((string) $item['code']) : '';
+                $message = isset($item['message']) ? trim((string) $item['message']) : '';
+                if ($message !== '') {
+                    $parts[] = ($code !== '' ? '[' . $code . '] ' : '') . $message;
+                }
+            }
         }
-        if (!empty($body['messages'][0]['message'])) {
-            return (string) $body['messages'][0]['message'];
+        if ($parts) {
+            return implode(' | ', array_slice(array_unique($parts), 0, 3));
+        }
+    }
+
+    $raw = trim((string) ($response['raw'] ?? ''));
+    if ($raw !== '') {
+        $raw = preg_replace('/<[^>]+>/', ' ', $raw) ?? $raw;
+        $raw = preg_replace('/\s+/', ' ', $raw) ?? $raw;
+        $raw = trim($raw);
+        if ($raw !== '') {
+            return mb_substr($raw, 0, MAX_CF_ERROR_DETAIL_BYTES);
         }
     }
 
     if (!empty($response['error'])) {
-        return $fallback . ' ' . (string) $response['error'];
+        return trim((string) $response['error']);
     }
 
-    return $fallback . ' HTTP ' . ($response['status'] ?? 'unknown') . '.';
+    return null;
+}
+
+function cf_error_message(array $response, string $fallback = 'Cloudflare API request failed.'): string
+{
+    $status = (int) ($response['status'] ?? 0);
+    $detail = cf_error_detail($response);
+    $statusText = $status > 0 ? ' HTTP ' . $status . '.' : '';
+
+    if ($detail !== null && $detail !== '') {
+        return rtrim($fallback) . $statusText . ' ' . $detail;
+    }
+
+    return rtrim($fallback) . ($statusText !== '' ? $statusText : '');
 }
 
 function valid_resource_id(string $value): bool
@@ -265,4 +459,15 @@ function iso_to_timestamp(string $value): ?int
     } catch (Throwable $e) {
         return null;
     }
+}
+
+function json_compact(mixed $value): string
+{
+    if ($value === null || $value === '' || $value === []) {
+        return '';
+    }
+    if (is_scalar($value)) {
+        return (string) $value;
+    }
+    return (string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 }
