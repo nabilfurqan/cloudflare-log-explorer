@@ -27,7 +27,7 @@ if (!$verify['ok'] || empty($verify['body']['success'])) {
 
 session_regenerate_id(true);
 unset($_SESSION['session_expired']);
-$_SESSION['cf_token'] = $token;
+store_session_token($token);
 $_SESSION['manual_zone_id'] = $manualZoneId;
 $_SESSION['manual_account_id'] = $manualAccountId;
 $_SESSION['connected_at'] = time();
@@ -76,6 +76,8 @@ json_response([
     'csrf' => $_SESSION['csrf'],
     'sessionIdleTimeoutSeconds' => SESSION_IDLE_TIMEOUT,
     'timezone' => APP_TIMEZONE,
+    'manualAccountId' => $manualAccountId,
+    'manualZoneId' => $manualZoneId,
     'token' => [
         'status' => (string) ($verifyResult['status'] ?? 'active'),
         'id' => (string) ($verifyResult['id'] ?? ''),
@@ -87,6 +89,8 @@ json_response([
         'zoneRead' => $zoneRead,
         'logsRead' => null,
         'analyticsRead' => null,
+        'configurationRead' => null,
+        'zeroTrustRead' => null,
     ],
     'zones' => $zones,
     'zoneReadError' => $zoneRead ? null : cf_error_message($zonesResp, 'Unable to list zones. The token may not have Zone Read.'),
