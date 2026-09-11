@@ -1,5 +1,4 @@
 DirectoryIndex index.php
-Options -Indexes
 
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
@@ -8,11 +7,3 @@ Options -Indexes
   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
   Header always set Strict-Transport-Security "max-age=31536000"
 </IfModule>
-
-<FilesMatch "^(\.git|\.env|\.cpanel|DEPLOY_CPANEL|README)">
-  Require all denied
-</FilesMatch>
-
-<FilesMatch "\.(ya?ml|md|example)$">
-  Require all denied
-</FilesMatch>

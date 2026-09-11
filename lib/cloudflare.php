@@ -104,7 +104,7 @@ function base64url_encode(string $value): string
     return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
 }
 
-function base64url_decode(string $value): string|false
+function base64url_decode(string $value)
 {
     $padding = strlen($value) % 4;
     if ($padding !== 0) {
@@ -189,7 +189,7 @@ function encrypt_session_secret(string $plain): string
 
 function decrypt_session_secret(string $encoded): ?string
 {
-    if (!str_contains($encoded, ':')) {
+    if (strpos($encoded, ':') === false) {
         return $encoded;
     }
 
@@ -423,7 +423,9 @@ function cf_error_detail(array $response): ?string
         $raw = preg_replace('/\s+/', ' ', $raw) ?? $raw;
         $raw = trim($raw);
         if ($raw !== '') {
-            return mb_substr($raw, 0, MAX_CF_ERROR_DETAIL_BYTES);
+            return function_exists('mb_substr')
+                ? mb_substr($raw, 0, MAX_CF_ERROR_DETAIL_BYTES)
+                : substr($raw, 0, MAX_CF_ERROR_DETAIL_BYTES);
         }
     }
 
@@ -461,7 +463,7 @@ function iso_to_timestamp(string $value): ?int
     }
 }
 
-function json_compact(mixed $value): string
+function json_compact($value): string
 {
     if ($value === null || $value === '' || $value === []) {
         return '';
