@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../lib/cloudflare.php';
 bootstrap_session();
+rate_limit_or_reject('fields', 30, 60);
 $token = require_token();
 
 $zoneId = trim((string) ($_GET['zoneId'] ?? ''));
@@ -14,7 +15,8 @@ if (!$response['ok']) {
     json_response([
         'success' => false,
         'capability' => 'logsRead',
-        'error' => cf_error_message($response, 'Unable to list Logpull fields. Check Logs Read permission and Enterprise Logpull availability.'),
+        'status' => $response['status'] ?? 0,
+        'error' => cf_error_message($response, 'Unable to list Logpull fields. Check Logs Read permission, plan availability, and Logpull access.'),
     ], $response['status'] ?: 502);
 }
 

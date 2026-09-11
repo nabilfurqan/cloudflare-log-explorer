@@ -20,9 +20,9 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="<?= $csrf ?>">
-    <title>Cloudflare Log Explorer</title>
-    <meta name="description" content="Secure browser-based Cloudflare Logpull and Security Events explorer.">
-    <link rel="stylesheet" href="assets/style.css?v=2">
+    <title>Cloudflare Explorer · Cloud Network Lab</title>
+    <meta name="description" content="Read-only Cloudflare Logpull, Security Events, WAF, Zero Trust, DNS and configuration explorer.">
+    <link rel="stylesheet" href="assets/style.css?v=3">
 </head>
 <body>
 <div class="shell">
@@ -30,8 +30,8 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
         <div class="brand">
             <div class="brand-mark">CF</div>
             <div>
-                <h1>Cloudflare Log Explorer</h1>
-                <p>Logpull & Security Events</p>
+                <h1>Cloudflare Explorer</h1>
+                <p>Logs · Security · Configuration</p>
             </div>
         </div>
         <div class="connection" id="connectionBadge"><span></span>Not connected</div>
@@ -41,12 +41,12 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
         <section class="hero">
             <div>
                 <div class="eyebrow">Cloud Network Lab Tool</div>
-                <h2>Query Cloudflare logs without handling raw API calls.</h2>
-                <p>Connect with a scoped API Token, choose a zone, inspect HTTP request logs or Security Events, then export the result to Excel, PDF, CSV, or JSON.</p>
+                <h2>Inspect Cloudflare logs, policies, and configuration from one place.</h2>
+                <p>Connect a scoped API Token, then inspect Security Events, HTTP Logpull, WAF rules, Zero Trust policies, DNS, tunnels, device posture, and other read-only configuration. Export retrieved datasets to Excel, PDF, CSV, or JSON.</p>
             </div>
             <div class="security-note">
-                <strong>Token handling</strong>
-                <span>Your token is kept only in the server-side PHP session, automatically expires after 30 minutes of inactivity, and is cleared when you disconnect.</span>
+                <strong>Read-only by design</strong>
+                <span>The application does not expose edit or delete operations. Your API Token stays in a server-side PHP session, expires after 30 minutes of inactivity, and is cleared when you disconnect.</span>
             </div>
         </section>
 
@@ -56,7 +56,7 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
                     <span class="step">01</span>
                     <h3>Connect Cloudflare</h3>
                 </div>
-                <p>Recommended token permissions: <b>Zone Read</b>, <b>Logs Read</b>, and <b>Analytics Read</b>.</p>
+                <p>Start with least-privilege read permissions. Additional modules only work when the token has their matching read permission.</p>
             </div>
             <form id="connectForm" autocomplete="off">
                 <label class="field field-wide">
@@ -68,11 +68,11 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
                 </label>
                 <label class="field">
                     <span>Zone ID <em>optional</em></span>
-                    <input id="manualZoneId" type="text" maxlength="32" placeholder="Auto-detect when permitted" spellcheck="false">
+                    <input id="manualZoneId" type="text" maxlength="32" placeholder="Auto-detect when Zone Read is permitted" spellcheck="false">
                 </label>
                 <label class="field">
                     <span>Account ID <em>optional</em></span>
-                    <input id="manualAccountId" type="text" maxlength="32" placeholder="Optional for future account datasets" spellcheck="false">
+                    <input id="manualAccountId" type="text" maxlength="32" placeholder="Needed for Zero Trust account datasets" spellcheck="false">
                 </label>
                 <div class="form-actions field-wide">
                     <button class="primary" type="submit" id="connectBtn">Connect</button>
@@ -84,17 +84,19 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
 
         <section class="workspace hidden" id="workspace">
             <div class="capabilities" id="capabilities">
-                <div class="cap"><span class="dot unknown"></span><div><b>Token</b><small>Checking</small></div></div>
-                <div class="cap"><span class="dot unknown"></span><div><b>Zone Read</b><small>Checking</small></div></div>
-                <div class="cap"><span class="dot unknown"></span><div><b>Logs Read</b><small>Test on zone</small></div></div>
-                <div class="cap"><span class="dot unknown"></span><div><b>Analytics Read</b><small>Test on query</small></div></div>
+                <div class="cap" data-cap="token"><span class="dot unknown"></span><div><b>Token</b><small>Checking</small></div></div>
+                <div class="cap" data-cap="zone"><span class="dot unknown"></span><div><b>Zone Read</b><small>Checking</small></div></div>
+                <div class="cap" data-cap="logs"><span class="dot unknown"></span><div><b>Logs Read</b><small>Test on zone</small></div></div>
+                <div class="cap" data-cap="analytics"><span class="dot unknown"></span><div><b>Analytics</b><small>Test on query</small></div></div>
+                <div class="cap" data-cap="config"><span class="dot unknown"></span><div><b>Rules / DNS</b><small>Scan access</small></div></div>
+                <div class="cap" data-cap="zeroTrust"><span class="dot unknown"></span><div><b>Zero Trust</b><small>Scan access</small></div></div>
             </div>
 
             <section class="card query-card">
                 <div class="card-head">
                     <div>
                         <span class="step">02</span>
-                        <h3>Build Query</h3>
+                        <h3>Explore</h3>
                     </div>
                     <button type="button" class="danger ghost" id="disconnectBtn">Disconnect & Clear Token</button>
                 </div>
@@ -102,22 +104,23 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
                 <div class="tabs" role="tablist">
                     <button class="tab active" type="button" data-mode="security">Security Events</button>
                     <button class="tab" type="button" data-mode="logpull">HTTP Logpull</button>
+                    <button class="tab" type="button" data-mode="configuration">Configuration</button>
                 </div>
 
                 <div class="query-grid">
-                    <label class="field field-wide">
+                    <label class="field field-wide" id="zoneField">
                         <span>Zone</span>
                         <select id="zoneSelect"></select>
                     </label>
-                    <label class="field">
+                    <label class="field" id="startField">
                         <span>From <em>WIB · Asia/Jakarta</em></span>
                         <input type="datetime-local" id="startTime" step="60">
                     </label>
-                    <label class="field">
+                    <label class="field" id="endField">
                         <span>To <em>WIB · Asia/Jakarta</em></span>
                         <input type="datetime-local" id="endTime" step="60">
                     </label>
-                    <label class="field">
+                    <label class="field" id="limitField">
                         <span>Maximum rows</span>
                         <select id="rowLimit">
                             <option value="100">100</option>
@@ -127,7 +130,7 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
                             <option value="10000">10,000</option>
                         </select>
                     </label>
-                    <div class="field mode-info">
+                    <div class="field mode-info" id="modeInfoField">
                         <span>Mode</span>
                         <strong id="modeLabel">Security Events</strong>
                         <small id="modeHint">Queries firewallEventsAdaptive using GraphQL Analytics.</small>
@@ -136,25 +139,69 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
 
                 <div id="logpullFields" class="field-panel hidden">
                     <div class="field-panel-head">
-                        <div><b>Logpull fields</b><small>Select which HTTP request fields Cloudflare should return.</small></div>
+                        <div><b>HTTP Logpull</b><small>Select which request fields Cloudflare should return.</small></div>
                         <div><button class="ghost mini" type="button" id="selectDefaults">Recommended</button><button class="ghost mini" type="button" id="selectAllFields">Select all</button></div>
+                    </div>
+                    <div class="retention-row">
+                        <span>Log retention</span>
+                        <strong class="status-pill unknown" id="retentionStatus">Not checked</strong>
+                        <small id="retentionNote">Choose a zone to check whether Logpull retention is enabled.</small>
                     </div>
                     <div id="fieldsGrid" class="fields-grid"><span class="muted">Choose a zone to load fields.</span></div>
                 </div>
 
+                <div id="configurationPanel" class="field-panel hidden">
+                    <div class="field-panel-head">
+                        <div><b>Read-only configuration</b><small>Choose a dataset. The API Token must have the corresponding read permission.</small></div>
+                        <div><button class="ghost mini" type="button" id="scanCapabilitiesBtn">Scan Access</button></div>
+                    </div>
+                    <div class="config-grid">
+                        <label class="field">
+                            <span>Dataset</span>
+                            <select id="configDataset">
+                                <optgroup label="Security / WAF">
+                                    <option value="waf-custom" data-scope="zone">WAF Custom Rules</option>
+                                    <option value="waf-managed" data-scope="zone">Managed WAF</option>
+                                    <option value="rate-limiting" data-scope="zone">Rate Limiting Rules</option>
+                                    <option value="transform-request" data-scope="zone">Request Transform Rules</option>
+                                    <option value="transform-response" data-scope="zone">Response Header Transform Rules</option>
+                                    <option value="configuration-rules" data-scope="zone">Configuration Rules</option>
+                                </optgroup>
+                                <optgroup label="Zero Trust">
+                                    <option value="gateway" data-scope="account">Gateway Policies</option>
+                                    <option value="access" data-scope="account">Access Applications & Policies</option>
+                                    <option value="warp" data-scope="account">WARP Device Profiles</option>
+                                    <option value="posture" data-scope="account">Device Posture Rules</option>
+                                    <option value="gateway-lists" data-scope="account">Gateway Lists</option>
+                                    <option value="tunnels" data-scope="account">Cloudflare Tunnels</option>
+                                </optgroup>
+                                <optgroup label="Network">
+                                    <option value="dns" data-scope="zone">DNS Records</option>
+                                    <option value="load-balancers" data-scope="zone">Load Balancers</option>
+                                </optgroup>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>Account ID <em>auto-filled from selected zone when available</em></span>
+                            <input id="configAccountId" type="text" maxlength="32" placeholder="32-character Account ID" spellcheck="false">
+                        </label>
+                    </div>
+                    <div class="cap-scan-grid" id="capabilityScan"><span class="muted">Use Scan Access to test read-only API capabilities for the selected Zone and Account.</span></div>
+                </div>
+
                 <div class="query-actions">
                     <button class="primary" type="button" id="runQueryBtn">Run Security Events Query</button>
-                    <span id="queryRule" class="hint">Security Events can use a wider time range; availability depends on your plan and token scope.</span>
+                    <span id="queryRule" class="hint">Security Events availability depends on your plan and Analytics Read access.</span>
                 </div>
                 <div id="queryMessage" class="message hidden"></div>
             </section>
 
             <section class="results hidden" id="resultsSection">
                 <div class="summary-grid">
-                    <div class="metric"><span>Total rows</span><b id="metricTotal">0</b></div>
-                    <div class="metric"><span>Blocked</span><b id="metricBlocked">0</b></div>
-                    <div class="metric"><span>Challenges</span><b id="metricChallenge">0</b></div>
-                    <div class="metric"><span>Top source</span><b id="metricSource">—</b></div>
+                    <div class="metric"><span id="metricLabelTotal">Total rows</span><b id="metricTotal">0</b></div>
+                    <div class="metric"><span id="metricLabelSecond">Blocked</span><b id="metricBlocked">0</b></div>
+                    <div class="metric"><span id="metricLabelThird">Challenges</span><b id="metricChallenge">0</b></div>
+                    <div class="metric"><span id="metricLabelFourth">Top source</span><b id="metricSource">—</b></div>
                 </div>
 
                 <section class="card table-card">
@@ -183,12 +230,12 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
         </section>
     </main>
 
-    <footer>Cloudflare Log Explorer · Built for Cloud Network Lab</footer>
+    <footer>Cloudflare Explorer · Built for Cloud Network Lab · Read-only</footer>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js" defer></script>
-<script src="assets/app.js?v=2" defer></script>
+<script src="assets/app.js?v=3" defer></script>
 </body>
 </html>
