@@ -105,36 +105,12 @@
   injectStyles();
 
   function injectStyles() {
-    if ($('permissionAssistStyles')) return;
-    const style = document.createElement('style');
-    style.id = 'permissionAssistStyles';
-    style.textContent = `
-      .permission-assist{border:1px solid #263752;background:linear-gradient(180deg,#0d1a2e,#0a1627);border-radius:14px;padding:16px;margin-bottom:14px}
-      .permission-assist-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}
-      .permission-assist-head span{display:block;color:#8fa1ba;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}
-      .permission-assist-head b{font-size:14px;color:#f4f7fb}
-      .permission-path-label{font-size:10px;color:#8fa1ba;margin-bottom:6px}
-      .permission-path{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:12px}
-      .permission-choice{display:inline-flex;align-items:center;min-height:34px;padding:8px 11px;border:1px solid #334863;border-radius:9px;background:#091426;color:#e9eff8;font-size:11px;font-weight:750}
-      .permission-arrow{color:#6f829d;font-size:12px}
-      .permission-actions{display:flex;gap:7px;flex-wrap:wrap;margin:2px 0 14px}
-      .permission-actions .ghost{padding:7px 10px;font-size:10px}
-      .permission-resource{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin-bottom:14px}
-      .permission-resource-item{border:1px solid #1e2c42;border-radius:10px;background:#0b1729;padding:10px;min-width:0}
-      .permission-resource-item span{display:block;color:#8093ad;font-size:9px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
-      .permission-resource-item b{display:block;color:#dce6f3;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .permission-checklist{display:grid;gap:7px;margin-bottom:12px}
-      .permission-check{display:grid;grid-template-columns:20px 1fr;gap:9px;align-items:start;border:1px solid #1e2c42;border-radius:9px;padding:9px 10px;background:#0a1627}
-      .permission-check-icon{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;border:1px solid #40516a;color:#8fa1ba;font-size:10px;font-weight:900;margin-top:1px}
-      .permission-check.good .permission-check-icon{border-color:rgba(60,207,145,.45);background:rgba(60,207,145,.10);color:#77e0b2}
-      .permission-check.bad .permission-check-icon{border-color:rgba(255,107,107,.45);background:rgba(255,107,107,.10);color:#ff9d9d}
-      .permission-check b{display:block;font-size:10px;color:#d9e2ef;margin-bottom:2px}
-      .permission-check small{display:block;color:#8fa1ba;font-size:9px;line-height:1.45}
-      .permission-note{display:block;color:#91a5bf;font-size:10px;line-height:1.55;border-top:1px solid #1e2c42;padding-top:11px}
-      .status-pill.warn{color:#ffe19a;border-color:rgba(247,201,72,.35);background:rgba(247,201,72,.08)}
-      @media(max-width:700px){.permission-resource{grid-template-columns:1fr}.permission-assist-head{align-items:flex-start}.permission-choice{width:100%}.permission-arrow{display:none}}
-    `;
-    document.head.appendChild(style);
+    if (document.querySelector('link[data-permission-assist]')) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'assets/permission-assist.css?v=1';
+    link.dataset.permissionAssist = '1';
+    document.head.appendChild(link);
   }
 
   function configurationActive() {
@@ -197,8 +173,8 @@
     const permission = permissionText(item);
     const resource = resourceText(item);
     const failureText = verificationState === 'missing'
-      ? `The last request was rejected. Add the permission and resource scope below, save the token, reconnect, then retry.`
-      : `These are the values to select when creating or editing the Cloudflare API Token.`;
+      ? 'The last request was rejected. Add the permission and resource scope below, save the token, reconnect, then retry.'
+      : 'These are the values to select when creating or editing the Cloudflare API Token.';
 
     guide.className = 'permission-assist';
     guide.innerHTML = '';
@@ -253,7 +229,6 @@
     openTokens.target = '_blank';
     openTokens.rel = 'noopener noreferrer';
     openTokens.textContent = 'Open Cloudflare API Tokens';
-    openTokens.style.textDecoration = 'none';
     actions.append(copyPermission, copySetup, openTokens);
 
     const resources = document.createElement('div');
