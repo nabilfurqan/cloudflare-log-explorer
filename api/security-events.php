@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/cloudflare.php';
 bootstrap_session();
 require_csrf();
+rate_limit_or_reject('security-events', 20, 60);
 $token = require_token();
 $data = read_json_body();
 
@@ -18,6 +19,12 @@ $startTs = iso_to_timestamp($start);
 $endTs = iso_to_timestamp($end);
 if ($startTs === null || $endTs === null || $endTs <= $startTs) {
     json_response(['success' => false, 'error' => 'Invalid time range.'], 422);
+}
+if (($endTs - $startTs) > 31 * 86400) {
+    json_response(['success' => false, 'error' => 'Security Events queries are limited to 31 days per request in this tool.'], 422);
+}
+if ($endTs > time() + 60) {
+    json_response(['success' => false, 'error' => 'The end time cannot be in the future.'], 422);
 }
 
 $query = <<<'GRAPHQL'
@@ -58,13 +65,22 @@ $payload = [
 
 $response = cf_request('POST', 'https://api.cloudflare.com/client/v4/graphql', $token, $payload);
 if (!$response['ok']) {
-    json_response(['success' => false, 'capability' => 'analyticsRead', 'error' => cf_error_message($response, 'Security Events query failed.')], $response['status'] ?: 502);
+    $status = (int) ($response['status'] ?? 0);
+    $message = cf_error_message($response, 'Security Events query failed.');
+    if ($status === 401 || $status === 403) {
+        $message .= ' Check Analytics Read permission and access to this zone.';
+    }
+    json_response(['success' => false, 'capability' => 'analyticsRead', 'status' => $status, 'error' => $message], $status ?: 502);
 }
 
 $body = $response['body'] ?? [];
 if (!empty($body['errors'])) {
-    $message = (string) ($body['errors'][0]['message'] ?? 'GraphQL query failed.');
-    json_response(['success' => false, 'capability' => 'analyticsRead', 'error' => $message], 403);
+    $errorResponse = ['body' => $body, 'raw' => $response['raw'] ?? '', 'status' => 200, 'error' => null];
+    json_response([
+        'success' => false,
+        'capability' => 'analyticsRead',
+        'error' => cf_error_message($errorResponse, 'Security Events GraphQL query failed.'),
+    ], 403);
 }
 
 $zones = $body['data']['viewer']['zones'] ?? [];
