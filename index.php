@@ -186,6 +186,11 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
                             <input id="configAccountId" type="text" maxlength="32" placeholder="32-character Account ID" spellcheck="false">
                         </label>
                     </div>
+                    <div class="retention-row" id="permissionGuide">
+                        <span>Recommended permission</span>
+                        <strong class="status-pill unknown" id="permissionGuidePill">Read only</strong>
+                        <small id="permissionGuideText">Choose a dataset to see the recommended least-privilege API Token permission.</small>
+                    </div>
                     <div class="cap-scan-grid" id="capabilityScan"><span class="muted">Use Scan Access to test read-only API capabilities for the selected Zone and Account.</span></div>
                 </div>
 
@@ -237,5 +242,6 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js" defer></script>
 <script src="assets/app.js?v=3" defer></script>
+<script src="assets/config-assist.js?v=1" defer></script>
 </body>
 </html>
