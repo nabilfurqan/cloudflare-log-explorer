@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           if grep -RInE --exclude-dir=.git --exclude='*.md' \
-            '(-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|CF_API_TOKEN[[:space:]]*=[[:space:]]*["'"'][A-Za-z0-9_-]{20,}["'"'])' .; then
+            '(-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|CF_API_TOKEN[[:space:]]*=[[:space:]]*[A-Za-z0-9_-]{20,})' .; then
             echo 'Potential committed secret detected.' >&2
             exit 1
           fi
