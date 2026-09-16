@@ -248,5 +248,6 @@ $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES, 'UTF-8');
 <script src="assets/app.js?v=3" defer></script>
 <script src="assets/config-assist.js?v=1" defer></script>
 <script src="assets/script-generator.js?v=1" defer></script>
+<script src="assets/query-script-generator.js?v=1" defer></script>
 </body>
 </html>
