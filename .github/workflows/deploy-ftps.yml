@@ -24,12 +24,12 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     environment: production
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, pinned by commit SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned by commit SHA
         with:
           persist-credentials: false
 
@@ -85,6 +85,8 @@ jobs:
           : "${FTP_USERNAME:?Missing FTP_USERNAME secret}"
           : "${FTP_PASSWORD:?Missing FTP_PASSWORD secret}"
 
+          # The shared-hosting FTPS endpoint can occasionally reset long/parallel
+          # transfers. Use one transfer stream and allow reconnects before failing.
           lftp -u "$FTP_USERNAME","$FTP_PASSWORD" -p 21 kemiri.iixcp.rumahweb.net <<'EOF'
           set cmd:fail-exit yes
           set ftp:ssl-force true
@@ -92,9 +94,11 @@ jobs:
           set ftp:ssl-auth TLS
           set ssl:verify-certificate yes
           set ftp:passive-mode true
-          set net:max-retries 2
-          set net:timeout 20
-          mirror -R --verbose --parallel=2 .deploy/ /
+          set net:max-retries 6
+          set net:timeout 30
+          set net:reconnect-interval-base 5
+          set net:reconnect-interval-max 30
+          mirror -R --continue --verbose --parallel=1 .deploy/ /
           bye
           EOF
 
@@ -115,8 +119,10 @@ jobs:
             set ftp:ssl-auth TLS;
             set ssl:verify-certificate yes;
             set ftp:passive-mode true;
-            set net:max-retries 2;
-            set net:timeout 20;
+            set net:max-retries 6;
+            set net:timeout 30;
+            set net:reconnect-interval-base 5;
+            set net:reconnect-interval-max 30;
             cat /.deployment-sha;
             bye
           ' | tr -d '\r\n')"
@@ -130,7 +136,7 @@ jobs:
 
           echo "FTPS deployment revision verified: $REMOTE_SHA"
 
-      - name: Public edge smoke test
+      - name: Public endpoint smoke test
         shell: bash
         run: |
           set -euo pipefail
@@ -142,6 +148,8 @@ jobs:
           HTTP_CODE="$(curl --silent --show-error \
             --user-agent "$SMOKE_UA" \
             -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
+            --connect-timeout 15 --max-time 45 \
+            --retry 3 --retry-delay 2 --retry-all-errors \
             -D "$HEADER_FILE" -o "$BODY_FILE" -w '%{http_code}' \
             https://logpull.cloudnetworklab.com/ || true)"
 
@@ -154,8 +162,10 @@ jobs:
             exit 0
           fi
 
+          # When the record is proxied again, an edge policy may intentionally block
+          # GitHub-hosted runners. FTPS revision verification above remains authoritative.
           if [[ "$HTTP_CODE" == "403" ]]; then
-            echo '::warning::Cloudflare edge policy returned HTTP 403 to the GitHub-hosted runner. The deployed revision was already verified over FTPS, so this is treated as an edge-policy warning rather than a deployment failure.'
+            echo '::warning::Public endpoint returned HTTP 403 to the GitHub-hosted runner. The deployed revision was already verified over FTPS.'
             exit 0
           fi
 
