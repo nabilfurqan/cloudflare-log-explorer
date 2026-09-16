@@ -6,12 +6,91 @@ const SESSION_IDLE_TIMEOUT = 1800;
 const MAX_JSON_BODY_BYTES = 65536;
 const MAX_CF_ERROR_DETAIL_BYTES = 1200;
 
+const CLOUDFLARE_PROXY_CIDRS = [
+    '103.21.244.0/22',
+    '103.22.200.0/22',
+    '103.31.4.0/22',
+    '104.16.0.0/13',
+    '104.24.0.0/14',
+    '108.162.192.0/18',
+    '131.0.72.0/22',
+    '141.101.64.0/18',
+    '162.158.0.0/15',
+    '172.64.0.0/13',
+    '173.245.48.0/20',
+    '188.114.96.0/20',
+    '190.93.240.0/20',
+    '197.234.240.0/22',
+    '198.41.128.0/17',
+    '2400:cb00::/32',
+    '2606:4700::/32',
+    '2803:f800::/32',
+    '2405:b500::/32',
+    '2405:8100::/32',
+    '2a06:98c0::/29',
+    '2c0f:f248::/32',
+];
+
 date_default_timezone_set(APP_TIMEZONE);
+
+function ip_in_cidr(string $ip, string $cidr): bool
+{
+    $parts = explode('/', $cidr, 2);
+    if (count($parts) !== 2) {
+        return false;
+    }
+
+    $ipBinary = @inet_pton($ip);
+    $networkBinary = @inet_pton($parts[0]);
+    if ($ipBinary === false || $networkBinary === false || strlen($ipBinary) !== strlen($networkBinary)) {
+        return false;
+    }
+
+    $bits = (int) $parts[1];
+    $maxBits = strlen($ipBinary) * 8;
+    if ($bits < 0 || $bits > $maxBits) {
+        return false;
+    }
+
+    $wholeBytes = intdiv($bits, 8);
+    $remainingBits = $bits % 8;
+
+    if ($wholeBytes > 0 && substr($ipBinary, 0, $wholeBytes) !== substr($networkBinary, 0, $wholeBytes)) {
+        return false;
+    }
+
+    if ($remainingBits === 0) {
+        return true;
+    }
+
+    $mask = (0xFF << (8 - $remainingBits)) & 0xFF;
+    return (ord($ipBinary[$wholeBytes]) & $mask) === (ord($networkBinary[$wholeBytes]) & $mask);
+}
+
+function is_cloudflare_proxy_ip(string $ip): bool
+{
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return false;
+    }
+
+    foreach (CLOUDFLARE_PROXY_CIDRS as $cidr) {
+        if (ip_in_cidr($ip, $cidr)) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 function is_https_request(): bool
 {
     if (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off') {
         return true;
+    }
+
+    $remoteIp = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+    if (!is_cloudflare_proxy_ip($remoteIp)) {
+        return false;
     }
 
     $forwardedProto = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
@@ -62,9 +141,15 @@ function json_response(array $payload, int $status = 200)
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
+    header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');
     header('Referrer-Policy: no-referrer');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+    header('Cross-Origin-Opener-Policy: same-origin');
+    header('Cross-Origin-Resource-Policy: same-origin');
+    header('X-Permitted-Cross-Domain-Policies: none');
+    header('X-Robots-Tag: noindex, nofollow, noarchive');
     echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -113,6 +198,46 @@ function base64url_decode(string $value)
     return base64_decode(strtr($value, '-_', '+/'), true);
 }
 
+function read_or_create_secret_key(string $path): ?string
+{
+    if ($path === '' || !is_dir(dirname($path))) {
+        return null;
+    }
+
+    $existing = @file_get_contents($path);
+    if (is_string($existing) && strlen($existing) === 32) {
+        @chmod($path, 0600);
+        return $existing;
+    }
+
+    try {
+        $key = random_bytes(32);
+    } catch (Throwable $e) {
+        return null;
+    }
+
+    $handle = @fopen($path, 'x+b');
+    if ($handle !== false) {
+        @chmod($path, 0600);
+        $written = fwrite($handle, $key);
+        fflush($handle);
+        fclose($handle);
+        if ($written === 32) {
+            return $key;
+        }
+        @unlink($path);
+        return null;
+    }
+
+    $existing = @file_get_contents($path);
+    if (is_string($existing) && strlen($existing) === 32) {
+        @chmod($path, 0600);
+        return $existing;
+    }
+
+    return null;
+}
+
 function app_secret_key(): ?string
 {
     static $cached = null;
@@ -133,74 +258,76 @@ function app_secret_key(): ?string
         }
     }
 
-    $path = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'cfle-session-key-v1.bin';
-    $existing = @file_get_contents($path);
-    if (is_string($existing) && strlen($existing) === 32) {
-        return $cached = $existing;
+    $candidatePaths = [];
+    $configuredPath = trim((string) (getenv('CFLE_SESSION_KEY_FILE') ?: ''));
+    if ($configuredPath !== '') {
+        $candidatePaths[] = $configuredPath;
     }
 
-    try {
-        $key = random_bytes(32);
-    } catch (Throwable $e) {
-        return null;
+    $parentDirectory = dirname(__DIR__, 2);
+    if ($parentDirectory !== '' && $parentDirectory !== DIRECTORY_SEPARATOR) {
+        $candidatePaths[] = rtrim($parentDirectory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . '.cfle-logpull-session-key-v1.bin';
     }
 
-    $handle = @fopen($path, 'x+b');
-    if ($handle !== false) {
-        @chmod($path, 0600);
-        fwrite($handle, $key);
-        fflush($handle);
-        fclose($handle);
-        return $cached = $key;
-    }
+    $candidatePaths[] = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'cfle-logpull-session-key-v1.bin';
 
-    $existing = @file_get_contents($path);
-    if (is_string($existing) && strlen($existing) === 32) {
-        return $cached = $existing;
+    foreach (array_unique($candidatePaths) as $path) {
+        $key = read_or_create_secret_key($path);
+        if (is_string($key) && strlen($key) === 32) {
+            return $cached = $key;
+        }
     }
 
     return null;
 }
 
-function encrypt_session_secret(string $plain): string
+function encrypt_session_secret(string $plain): ?string
 {
     $key = app_secret_key();
     if ($key === null) {
-        return 'plain:' . base64url_encode($plain);
+        return null;
     }
 
     if (function_exists('sodium_crypto_secretbox')) {
-        $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-        $cipher = sodium_crypto_secretbox($plain, $nonce, $key);
-        return 'sodium:' . base64url_encode($nonce . $cipher);
-    }
-
-    if (function_exists('openssl_encrypt')) {
-        $iv = random_bytes(12);
-        $tag = '';
-        $cipher = openssl_encrypt($plain, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, '', 16);
-        if (is_string($cipher)) {
-            return 'gcm:' . base64url_encode($iv . $tag . $cipher);
+        try {
+            $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+            $cipher = sodium_crypto_secretbox($plain, $nonce, $key);
+            return 'sodium:' . base64url_encode($nonce . $cipher);
+        } catch (Throwable $e) {
+            return null;
         }
     }
 
-    return 'plain:' . base64url_encode($plain);
+    if (function_exists('openssl_encrypt')) {
+        try {
+            $iv = random_bytes(12);
+            $tag = '';
+            $cipher = openssl_encrypt($plain, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, '', 16);
+            if (is_string($cipher) && strlen($tag) === 16) {
+                return 'gcm:' . base64url_encode($iv . $tag . $cipher);
+            }
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    return null;
 }
 
 function decrypt_session_secret(string $encoded): ?string
 {
     if (strpos($encoded, ':') === false) {
-        return $encoded;
-    }
-
-    [$scheme, $payload] = explode(':', $encoded, 2);
-    $raw = base64url_decode($payload);
-    if (!is_string($raw)) {
         return null;
     }
 
+    [$scheme, $payload] = explode(':', $encoded, 2);
     if ($scheme === 'plain') {
-        return $raw;
+        return null;
+    }
+
+    $raw = base64url_decode($payload);
+    if (!is_string($raw)) {
+        return null;
     }
 
     $key = app_secret_key();
@@ -235,7 +362,16 @@ function decrypt_session_secret(string $encoded): ?string
 
 function store_session_token(string $token): void
 {
-    $_SESSION['cf_token_enc'] = encrypt_session_secret($token);
+    $encrypted = encrypt_session_secret($token);
+    if (!is_string($encrypted) || $encrypted === '') {
+        unset($_SESSION['cf_token_enc'], $_SESSION['cf_token']);
+        json_response([
+            'success' => false,
+            'error' => 'Secure API Token storage is unavailable on this server. Enable PHP Sodium or OpenSSL AES-256-GCM and ensure the session encryption key is writable, then try again.',
+        ], 503);
+    }
+
+    $_SESSION['cf_token_enc'] = $encrypted;
     unset($_SESSION['cf_token']);
 }
 
@@ -253,9 +389,9 @@ function require_token(): string
     }
 
     if (!empty($_SESSION['cf_token']) && is_string($_SESSION['cf_token'])) {
-        $token = $_SESSION['cf_token'];
-        store_session_token($token);
-        return $token;
+        $_SESSION = [];
+        session_regenerate_id(true);
+        json_response(['success' => false, 'error' => 'Legacy unencrypted session state was rejected. Connect your Cloudflare API Token again.'], 401);
     }
 
     $expired = !empty($_SESSION['session_expired']);
@@ -269,10 +405,10 @@ function require_token(): string
 
 function client_ip_for_rate_limit(): string
 {
-    $remoteIp = trim((string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+    $remoteIp = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
     $cfIp = trim((string) ($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
 
-    if ($cfIp !== '' && filter_var($cfIp, FILTER_VALIDATE_IP)) {
+    if (is_cloudflare_proxy_ip($remoteIp) && $cfIp !== '' && filter_var($cfIp, FILTER_VALIDATE_IP)) {
         return $cfIp;
     }
 
@@ -337,9 +473,29 @@ function cf_request(string $method, string $path, string $token, ?array $body = 
         ];
     }
 
-    $url = strpos($path, 'https://') === 0
-        ? $path
-        : 'https://api.cloudflare.com/client/v4' . $path;
+    if (strpos($path, 'https://') === 0) {
+        if (strpos($path, 'https://api.cloudflare.com/') !== 0) {
+            return [
+                'ok' => false,
+                'status' => 0,
+                'body' => null,
+                'raw' => '',
+                'error' => 'External API host is not allowed.',
+            ];
+        }
+        $url = $path;
+    } else {
+        if ($path === '' || $path[0] !== '/') {
+            return [
+                'ok' => false,
+                'status' => 0,
+                'body' => null,
+                'raw' => '',
+                'error' => 'Invalid Cloudflare API path.',
+            ];
+        }
+        $url = 'https://api.cloudflare.com/client/v4' . $path;
+    }
 
     if ($query) {
         $url .= (strpos($url, '?') !== false ? '&' : '?') . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
@@ -353,7 +509,7 @@ function cf_request(string $method, string $path, string $token, ?array $body = 
     $headers = [
         'Authorization: Bearer ' . $token,
         'Accept: application/json',
-        'User-Agent: Cloudflare-Explorer/2.0',
+        'User-Agent: Cloudflare-Explorer/2.1',
     ];
 
     if ($body !== null) {
@@ -361,7 +517,7 @@ function cf_request(string $method, string $path, string $token, ?array $body = 
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body, JSON_UNESCAPED_SLASHES));
     }
 
-    curl_setopt_array($ch, [
+    $options = [
         CURLOPT_CUSTOMREQUEST => strtoupper($method),
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => false,
@@ -370,7 +526,15 @@ function cf_request(string $method, string $path, string $token, ?array $body = 
         CURLOPT_HTTPHEADER => $headers,
         CURLOPT_HEADER => true,
         CURLOPT_ENCODING => '',
-    ]);
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+    ];
+
+    if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+        $options[CURLOPT_PROTOCOLS] = CURLPROTO_HTTPS;
+    }
+
+    curl_setopt_array($ch, $options);
 
     $raw = curl_exec($ch);
     if ($raw === false) {

@@ -25,10 +25,30 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: production
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, pinned by commit SHA
+        with:
+          persist-credentials: false
+
+      - name: Validate PHP and JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          find . -type f -name '*.php' -not -path './.git/*' -print0 | xargs -0 -n1 php -l
+          find assets -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Reject obvious committed secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE --exclude-dir=.git --exclude='*.md' \
+            '(-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|CF_API_TOKEN[[:space:]]*=[[:space:]]*[A-Za-z0-9_-]{20,})' .; then
+            echo 'Potential committed secret detected. Refusing deployment.' >&2
+            exit 1
+          fi
 
       - name: Prepare deployment package
         shell: bash
@@ -42,6 +62,11 @@ jobs:
           cp -R api/. .deploy/api/
           cp -R assets/. .deploy/assets/
           cp -R lib/. .deploy/lib/
+
+          if find .deploy -type l -print -quit | grep -q .; then
+            echo 'Symlinks are not allowed in the production deployment package.' >&2
+            exit 1
+          fi
 
       - name: Install FTPS client
         shell: bash
@@ -60,8 +85,10 @@ jobs:
           : "${FTP_PASSWORD:?Missing FTP_PASSWORD secret}"
 
           lftp -u "$FTP_USERNAME","$FTP_PASSWORD" -p 21 kemiri.iixcp.rumahweb.net <<'EOF'
+          set cmd:fail-exit yes
           set ftp:ssl-force true
           set ftp:ssl-protect-data true
+          set ftp:ssl-auth TLS
           set ssl:verify-certificate yes
           set ftp:passive-mode true
           set net:max-retries 2
@@ -79,4 +106,14 @@ jobs:
             https://logpull.cloudnetworklab.com/ > /dev/null
           curl --fail --silent --show-error \
             https://logpull.cloudnetworklab.com/favicon.ico > /dev/null
-          echo 'Deployment smoke test passed.'
+
+          headers="$(curl --fail --silent --show-error --head https://logpull.cloudnetworklab.com/)"
+          printf '%s\n' "$headers" | grep -qi '^strict-transport-security:'
+          printf '%s\n' "$headers" | grep -qi '^x-content-type-options:[[:space:]]*nosniff'
+          printf '%s\n' "$headers" | grep -qi '^x-frame-options:[[:space:]]*DENY'
+          printf '%s\n' "$headers" | grep -qi '^content-security-policy:'
+          echo 'Deployment smoke test and security header checks passed.'
+
+# Intentionally no `mirror --delete` yet.
+# Enable deletion only after the cPanel/FTPS account is verified to be jailed exclusively
+# to the logpull.cloudnetworklab.com document root; otherwise it could delete unrelated files.
