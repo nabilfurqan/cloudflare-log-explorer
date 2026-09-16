@@ -101,13 +101,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          SMOKE_UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36'
+
           curl --fail --silent --show-error \
+            --user-agent "$SMOKE_UA" \
+            -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
             --retry 5 --retry-delay 2 --retry-all-errors \
             https://logpull.cloudnetworklab.com/ > /dev/null
+
           curl --fail --silent --show-error \
+            --user-agent "$SMOKE_UA" \
+            -H 'Accept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8' \
             https://logpull.cloudnetworklab.com/favicon.ico > /dev/null
 
-          headers="$(curl --fail --silent --show-error --head https://logpull.cloudnetworklab.com/)"
+          headers="$(curl --fail --silent --show-error \
+            --user-agent "$SMOKE_UA" \
+            -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
+            -D - -o /dev/null \
+            https://logpull.cloudnetworklab.com/)"
+
           printf '%s\n' "$headers" | grep -qi '^strict-transport-security:'
           printf '%s\n' "$headers" | grep -qi '^x-content-type-options:[[:space:]]*nosniff'
           printf '%s\n' "$headers" | grep -qi '^x-frame-options:[[:space:]]*DENY'
