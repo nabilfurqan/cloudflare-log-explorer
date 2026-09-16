@@ -1,9 +1,18 @@
 DirectoryIndex index.php
+Options -Indexes
 
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
   Header always set X-Frame-Options "DENY"
   Header always set Referrer-Policy "no-referrer"
-  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
-  Header always set Strict-Transport-Security "max-age=31536000"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+  Header always set Cross-Origin-Resource-Policy "same-origin"
+  Header always set X-Permitted-Cross-Domain-Policies "none"
+  Header always set X-Robots-Tag "noindex, nofollow, noarchive"
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
 </IfModule>
+
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
